@@ -402,7 +402,7 @@ export function FilterButtons({
   stats,
 }: FilterButtonsProps) {
   return (
-    <s-inline-stack gap="200">
+    <s-stack gap="base" direction="inline">
       <s-button
         variant={filter === "all" ? "primary" : "secondary"}
         onClick={() => onFilterChange("all")}
@@ -421,7 +421,7 @@ export function FilterButtons({
       >
         Negative Margins ({stats.negative})
       </s-button>
-    </s-inline-stack>
+    </s-stack>
   );
 }
 
@@ -439,17 +439,6 @@ export function ProductRow({
   onToggleUpdate,
   onPriceChange,
 }: ProductRowProps) {
-  const rowStyle = {
-    backgroundColor:
-      product.marginStatus === "good"
-        ? "#f0fff0"
-        : product.marginStatus === "medium"
-          ? "#f7ecdc"
-          : "#ffeae8",
-    opacity: product.update ? 1 : 0.4,
-    textDecoration: product.update ? "none" : "line-through",
-  };
-
   const handlePriceChange = useCallback(
     (e: ChangeEvent<HTMLInputElement>) => {
       const value = parseFloat(e.target.value) || 0;
@@ -459,19 +448,19 @@ export function ProductRow({
   );
 
   return (
-    <tr style={rowStyle}>
-      <td style={{ padding: "8px" }}>
+    <s-table-row>
+      <s-table-cell>
         {product.image ? (
-          <img
-            src={product.image}
-            alt={product.name}
-            style={{
-              width: "40px",
-              height: "40px",
-              objectFit: "cover",
-              borderRadius: "4px",
-            }}
-          />
+          <s-box inlineSize="40px">
+            <s-image
+              src={product.image}
+              alt={product.name}
+              objectFit="cover"
+              aspectRatio="1/1"
+              borderRadius="base"
+              inlineSize="fill"
+            />
+          </s-box>
         ) : (
           <div
             style={{
@@ -482,8 +471,8 @@ export function ProductRow({
             }}
           />
         )}
-      </td>
-      <td style={{ padding: "8px" }}>
+      </s-table-cell>
+      <s-table-cell>
         <div>
           <strong>{product.name}</strong>
         </div>
@@ -499,14 +488,14 @@ export function ProductRow({
         >
           {product.sku}
         </div>
-      </td>
-      <td style={{ padding: "8px" }}>
+      </s-table-cell>
+      <s-table-cell>
         <CostCell currentCost={product.cost} newCost={product.costNew} />
-      </td>
-      <td style={{ padding: "8px" }}>
+      </s-table-cell>
+      <s-table-cell>
         <MarginBadge margin={product.margin} status={product.marginStatus} />
-      </td>
-      <td style={{ padding: "8px" }}>
+      </s-table-cell>
+      <s-table-cell>
         <input
           type="number"
           value={product.price.toFixed(2)}
@@ -520,15 +509,15 @@ export function ProductRow({
             width: "100px",
           }}
         />
-      </td>
-      <td style={{ padding: "8px", textAlign: "center" }}>
+      </s-table-cell>
+      <s-table-cell>
         <input
           type="checkbox"
           checked={product.update}
           onChange={() => onToggleUpdate(product.sku)}
         />
-      </td>
-    </tr>
+      </s-table-cell>
+    </s-table-row>
   );
 }
 
@@ -555,42 +544,27 @@ export function ProductTable({
   }
 
   return (
-    <div style={{ overflowX: "auto" }}>
-      <table
-        style={{
-          width: "100%",
-          borderCollapse: "collapse",
-          backgroundColor: "#fff",
-        }}
-      >
-        <thead style={{ backgroundColor: "#f5f5f5" }}>
-          <tr>
-            <th style={{ padding: "12px 8px", textAlign: "left" }}>Image</th>
-            <th style={{ padding: "12px 8px", textAlign: "left" }}>Product</th>
-            <th style={{ padding: "12px 8px", textAlign: "left" }}>
-              Cost Change
-            </th>
-            <th style={{ padding: "12px 8px", textAlign: "left" }}>
-              New Margin
-            </th>
-            <th style={{ padding: "12px 8px", textAlign: "left" }}>Price</th>
-            <th style={{ padding: "12px 8px", textAlign: "center" }}>
-              Update?
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {products.map((product) => (
-            <ProductRow
-              key={product.sku}
-              product={product}
-              onToggleUpdate={onToggleUpdate}
-              onPriceChange={onPriceChange}
-            />
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <s-table>
+      <s-table-header-row>
+        <s-table-header>Image</s-table-header>
+        <s-table-header>Product</s-table-header>
+        <s-table-header>Cost Change</s-table-header>
+        <s-table-header>New Margin</s-table-header>
+        <s-table-header>Price</s-table-header>
+        <s-table-header>Update?</s-table-header>
+      </s-table-header-row>
+
+      <s-table-body>
+        {products.map((product) => (
+          <ProductRow
+            key={product.sku}
+            product={product}
+            onToggleUpdate={onToggleUpdate}
+            onPriceChange={onPriceChange}
+          />
+        ))}
+      </s-table-body>
+    </s-table>
   );
 }
 

@@ -510,7 +510,6 @@ export default function SupplierUpdatesPage() {
   const hasStockField =
     fields.soh.value !== null && fields.soh.value !== "none";
 
-
   // Handle file load
   const handleFileLoad = useCallback((data: string[][]) => {
     setCsvData(data);
@@ -745,7 +744,9 @@ export default function SupplierUpdatesPage() {
               {isLoading && products.length === 0 && (
                 <s-box>
                   <s-spinner size="large" />
-                  <s-text>Looking up products...</s-text>
+                  <s-text>
+                    Looking up products... This can take a minute!
+                  </s-text>
                 </s-box>
               )}
 
@@ -800,7 +801,9 @@ export default function SupplierUpdatesPage() {
               {isLoading && products.length === 0 && (
                 <s-box>
                   <s-spinner size="large" />
-                  <s-text>Looking up products...</s-text>
+                  <s-text>
+                    Looking up products... This can take a minute!
+                  </s-text>
                 </s-box>
               )}
 
@@ -837,16 +840,23 @@ export default function SupplierUpdatesPage() {
                   />
 
                   {!batchProcessor.isProcessing && (
-                    <s-inline-stack gap="200">
-                      <s-button
-                        variant="primary"
-                        onClick={handleUpdatePricing}
-                        disabled={isLoading}
-                      >
-                        Update Now ({stats.toUpdate} products)
-                      </s-button>
-                      <s-button onClick={goToCSV}>Cancel</s-button>
-                    </s-inline-stack>
+                    <div
+                      style={{
+                        position: "sticky",
+                        bottom: "16px",
+                      }}
+                    >
+                      <s-stack gap="base" direction="inline">
+                        <s-button
+                          variant="primary"
+                          onClick={handleUpdatePricing}
+                          disabled={isLoading}
+                        >
+                          Update Now ({stats.toUpdate} products)
+                        </s-button>
+                        <s-button onClick={goToCSV}>Cancel</s-button>
+                      </s-stack>
+                    </div>
                   )}
                 </>
               )}
