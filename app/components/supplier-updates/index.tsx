@@ -3,7 +3,7 @@
  * React components using Shopify Polaris Web Components
  */
 
-import { useCallback, type ChangeEvent } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   CSVFieldMapping,
   NormalizedProduct,
@@ -15,7 +15,7 @@ import { formatCurrency, formatMargin } from "../../lib/supplier-updates";
  * CSV File Upload Component
  */
 interface CSVUploaderProps {
-  onFileLoad: (data: string[][]) => void;
+  onFileLoad: (data: string[][], fileName: string) => void;
   onError: (error: string) => void;
   disabled?: boolean;
 }
@@ -73,7 +73,7 @@ export function CSVUploader({
           rows.push(row);
         }
 
-        onFileLoad(rows);
+        onFileLoad(rows, file.name);
       } catch {
         onError("Error parsing CSV file. Please check the format.");
       }
@@ -252,16 +252,17 @@ interface BatchProgressProps {
 export function BatchProgress({
   current,
   total,
-  progress,
   isProcessing,
 }: BatchProgressProps) {
   if (!isProcessing) return null;
 
   return (
-    <s-box padding="base" border-radius="base" background="strong">
+    <s-box padding="base" borderRadius="base" background="strong">
       <s-stack gap="base">
-        <s-heading>Updating...</s-heading>
-        <s-progress-bar progress={progress} />
+        <s-stack gap="small-200" direction="inline">
+          <s-spinner size="base" />
+          <s-heading>Updating...</s-heading>
+        </s-stack>
         <s-text tone="neutral">
           Batch {current} of {total}
         </s-text>
@@ -329,7 +330,7 @@ export function CostCell({ currentCost, newCost }: CostCellProps) {
   const decreased = newCost < currentCost;
 
   return (
-    <s-inline-stack gap="100" align="center">
+    <s-stack gap="small-300" direction="inline">
       <s-text>{formatCurrency(currentCost)}</s-text>
       <s-text>→</s-text>
       <s-text>{formatCurrency(newCost)}</s-text>
@@ -359,7 +360,7 @@ export function CostCell({ currentCost, newCost }: CostCellProps) {
           ↓
         </span>
       )}
-    </s-inline-stack>
+    </s-stack>
   );
 }
 
@@ -430,63 +431,92 @@ export function FilterButtons({
  */
 interface ProductRowProps {
   product: NormalizedProduct;
-  onToggleUpdate: (sku: string) => void;
-  onPriceChange: (sku: string, price: number) => void;
+  onToggleUpdate: (variantId: string) => void;
+  onPriceChange: (variantId: string, price: number) => void;
+  shopDomain?: string | null;
 }
 
 export function ProductRow({
   product,
   onToggleUpdate,
   onPriceChange,
+  shopDomain,
 }: ProductRowProps) {
   const handlePriceChange = useCallback(
-    (e: ChangeEvent<HTMLInputElement>) => {
-      const value = parseFloat(e.target.value) || 0;
-      onPriceChange(product.sku, value);
+    (e: Event) => {
+      const target = e.currentTarget as HTMLInputElement | null;
+      const value = target?.value ? parseFloat(target.value) : 0;
+      onPriceChange(product.variantId, value);
     },
-    [onPriceChange, product.sku],
+    [onPriceChange, product.variantId],
   );
+  const productId = product.id.split("/").pop();
+  const shopHost = shopDomain
+    ? shopDomain.replace(/^https?:\/\//, "").replace(/\/$/, "")
+    : null;
+  const adminUrl =
+    productId && shopHost
+      ? `https://${shopHost}/admin/products/${productId}`
+      : null;
 
   return (
     <s-table-row>
       <s-table-cell>
-        {product.image ? (
-          <s-box inlineSize="40px">
-            <s-image
-              src={product.image}
-              alt={product.name}
-              objectFit="cover"
-              aspectRatio="1/1"
-              borderRadius="base"
-              inlineSize="fill"
-            />
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <div>
+            {product.image ? (
+              <s-box inlineSize="40px">
+                <s-image
+                  src={product.image}
+                  alt={product.name}
+                  objectFit="cover"
+                  aspectRatio="1/1"
+                  borderRadius="base"
+                  inlineSize="fill"
+                />
+              </s-box>
+            ) : (
+              <div
+                style={{
+                  width: "40px",
+                  height: "40px",
+                  backgroundColor: "#e0e0e0",
+                  borderRadius: "4px",
+                }}
+              />
+            )}
+          </div>
+          <s-box inlineSize="85%">
+            <div>
+              <strong>{product.name}</strong>
+            </div>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                marginTop: "4px",
+                flexWrap: "wrap",
+              }}
+            >
+              <div
+                style={{
+                  backgroundColor: "rgba(0,0,0,0.1)",
+                  padding: "1px 5px",
+                  borderRadius: "5px",
+                  display: "inline-block",
+                  fontSize: "12px",
+                }}
+              >
+                {product.sku}
+              </div>
+              {adminUrl && (
+                <s-link href={adminUrl} target="_blank">
+                  Edit &gt;
+                </s-link>
+              )}
+            </div>
           </s-box>
-        ) : (
-          <div
-            style={{
-              width: "40px",
-              height: "40px",
-              backgroundColor: "#e0e0e0",
-              borderRadius: "4px",
-            }}
-          />
-        )}
-      </s-table-cell>
-      <s-table-cell>
-        <div>
-          <strong>{product.name}</strong>
-        </div>
-        <div
-          style={{
-            backgroundColor: "rgba(0,0,0,0.1)",
-            padding: "1px 5px",
-            borderRadius: "5px",
-            display: "inline-block",
-            marginTop: "4px",
-            fontSize: "12px",
-          }}
-        >
-          {product.sku}
         </div>
       </s-table-cell>
       <s-table-cell>
@@ -496,25 +526,22 @@ export function ProductRow({
         <MarginBadge margin={product.margin} status={product.marginStatus} />
       </s-table-cell>
       <s-table-cell>
-        <input
-          type="number"
-          value={product.price.toFixed(2)}
-          onChange={handlePriceChange}
-          step="0.01"
-          min="0"
-          style={{
-            padding: "6px",
-            borderRadius: "4px",
-            border: "1px solid #ccc",
-            width: "100px",
-          }}
-        />
+        <s-box inlineSize="100px">
+          <s-number-field
+            label="Price"
+            labelAccessibilityVisibility="exclusive"
+            step={0.01}
+            min={0}
+            value={product.price.toString()}
+            onChange={handlePriceChange}
+          />
+        </s-box>
       </s-table-cell>
       <s-table-cell>
-        <input
-          type="checkbox"
+        <s-checkbox
+          accessibilityLabel="Update Product?"
           checked={product.update}
-          onChange={() => onToggleUpdate(product.sku)}
+          onChange={() => onToggleUpdate(product.variantId)}
         />
       </s-table-cell>
     </s-table-row>
@@ -526,15 +553,64 @@ export function ProductRow({
  */
 interface ProductTableProps {
   products: NormalizedProduct[];
-  onToggleUpdate: (sku: string) => void;
-  onPriceChange: (sku: string, price: number) => void;
+  onToggleUpdate: (variantId: string) => void;
+  onPriceChange: (variantId: string, price: number) => void;
+  onSelectCurrentPage?: (variantIds: string[]) => void;
+  shopDomain?: string | null;
+  filter: FilterType;
 }
 
 export function ProductTable({
   products,
   onToggleUpdate,
   onPriceChange,
+  onSelectCurrentPage,
+  shopDomain,
+  filter,
 }: ProductTableProps) {
+  const showDevSelectCurrentPage = import.meta.env.DEV;
+  const itemsPerPage = 50;
+  const [currentPage, setCurrentPage] = useState(1);
+  const totalPages = Math.ceil(products.length / itemsPerPage);
+  const paginate = totalPages > 1;
+
+  const hasNextPage = currentPage < totalPages;
+  const hasPreviousPage = currentPage > 1;
+
+  useEffect(() => {
+    if (totalPages === 0 && currentPage !== 1) {
+      setCurrentPage(1);
+      return;
+    }
+    if (currentPage > totalPages && totalPages > 0) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filter]);
+
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedProducts = useMemo(
+    () => products.slice(startIndex, endIndex),
+    [products, startIndex, endIndex],
+  );
+
+  const handleSelectCurrentPage = useCallback(() => {
+    if (!onSelectCurrentPage) return;
+    onSelectCurrentPage(paginatedProducts.map((product) => product.variantId));
+  }, [onSelectCurrentPage, paginatedProducts]);
+
+  console.log("Rendering ProductTable:", {
+    currentPage,
+    totalPages,
+    hasNextPage,
+    hasPreviousPage,
+    paginatedProducts,
+  });
+
   if (products.length === 0) {
     return (
       <s-box padding="base">
@@ -544,27 +620,60 @@ export function ProductTable({
   }
 
   return (
-    <s-table>
-      <s-table-header-row>
-        <s-table-header>Image</s-table-header>
-        <s-table-header>Product</s-table-header>
-        <s-table-header>Cost Change</s-table-header>
-        <s-table-header>New Margin</s-table-header>
-        <s-table-header>Price</s-table-header>
-        <s-table-header>Update?</s-table-header>
-      </s-table-header-row>
+    <>
+      {(paginate || (onSelectCurrentPage && showDevSelectCurrentPage)) && (
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: "8px",
+          }}
+        >
+          {paginate ? (
+            <s-text tone="neutral">
+              Page {currentPage} of {totalPages}
+            </s-text>
+          ) : (
+            <span />
+          )}
+          {onSelectCurrentPage && showDevSelectCurrentPage && (
+            <s-button variant="secondary" onClick={handleSelectCurrentPage}>
+              Dev: Select current page
+            </s-button>
+          )}
+        </div>
+      )}
+      <s-table
+        paginate={paginate}
+        hasPreviousPage={hasPreviousPage}
+        hasNextPage={hasNextPage}
+        onPreviousPage={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+        onNextPage={() =>
+          setCurrentPage((prev) => Math.min(prev + 1, totalPages))
+        }
+      >
+        <s-table-header-row>
+          <s-table-header listSlot="primary">Product</s-table-header>
+          <s-table-header>Cost Change</s-table-header>
+          <s-table-header>New Margin</s-table-header>
+          <s-table-header>Price</s-table-header>
+          <s-table-header>Update?</s-table-header>
+        </s-table-header-row>
 
-      <s-table-body>
-        {products.map((product) => (
-          <ProductRow
-            key={product.sku}
-            product={product}
-            onToggleUpdate={onToggleUpdate}
-            onPriceChange={onPriceChange}
-          />
-        ))}
-      </s-table-body>
-    </s-table>
+        <s-table-body>
+          {paginatedProducts.map((product) => (
+            <ProductRow
+              key={product.variantId}
+              product={product}
+              onToggleUpdate={onToggleUpdate}
+              onPriceChange={onPriceChange}
+              shopDomain={shopDomain}
+            />
+          ))}
+        </s-table-body>
+      </s-table>
+    </>
   );
 }
 
@@ -590,7 +699,7 @@ export function MarginSettings({
   );
 
   return (
-    <s-box padding="base" border-radius="base" background="subdued">
+    <s-box padding="base" borderRadius="base" background="subdued">
       <s-stack gap="base">
         <s-number-field
           label="Target Margin Threshold (%):"

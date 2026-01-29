@@ -114,7 +114,7 @@ interface InventoryItemUpdateResponse {
  * Loader - Get initial data (location ID)
  */
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { admin } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
 
   // Get default location for inventory operations
   const locationsResponse = await admin.graphql(GET_LOCATIONS);
@@ -127,6 +127,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   return {
     locationId: defaultLocation?.id || null,
     locationName: defaultLocation?.name || "Unknown",
+    shopDomain: session.shop,
   };
 };
 
@@ -467,13 +468,14 @@ export const action = async ({ request }: ActionFunctionArgs) => {
  * Supplier Updates Page Component
  */
 export default function SupplierUpdatesPage() {
-  const { locationId } = useLoaderData<typeof loader>();
+  const { locationId, shopDomain } = useLoaderData<typeof loader>();
   const fetcher = useFetcher<typeof action>();
   const shopify = useAppBridge();
 
   // Workflow state
   const [step, setStep] = useState<WorkflowStep>("csv");
   const [csvData, setCsvData] = useState<string[][]>([]);
+  const [csvFileName, setCsvFileName] = useState<string>("");
   const [error, setError] = useState<string>("");
   const [updateType, setUpdateType] = useState<"stock" | "pricing" | null>(
     null,
@@ -494,6 +496,7 @@ export default function SupplierUpdatesPage() {
     setMargin,
     toggleProductUpdate,
     updateProductPrice,
+    setUpdatesForVariants,
     stats,
   } = usePricingProducts(5);
 
@@ -511,8 +514,9 @@ export default function SupplierUpdatesPage() {
     fields.soh.value !== null && fields.soh.value !== "none";
 
   // Handle file load
-  const handleFileLoad = useCallback((data: string[][]) => {
+  const handleFileLoad = useCallback((data: string[][], fileName: string) => {
     setCsvData(data);
+    setCsvFileName(fileName);
     setError("");
   }, []);
 
@@ -637,7 +641,10 @@ export default function SupplierUpdatesPage() {
 
   // Handle update results
   const updateComplete =
-    fetcher.data && "results" in fetcher.data && !isLoading;
+    updateType !== null &&
+    fetcher.data &&
+    "results" in fetcher.data &&
+    !isLoading;
   const lookupComplete =
     fetcher.data &&
     "products" in fetcher.data &&
@@ -651,6 +658,7 @@ export default function SupplierUpdatesPage() {
   // Start again
   const handleStartAgain = useCallback(() => {
     setCsvData([]);
+    setCsvFileName("");
     setStep("csv");
     setUpdateType(null);
     setProducts([]);
@@ -696,7 +704,8 @@ export default function SupplierUpdatesPage() {
 
               {csvData.length > 1 && (
                 <s-text tone="critical">
-                  {csvData.length - 1} rows loaded from CSV
+                  {csvData.length - 1} rows loaded from
+                  {csvFileName ? ` "${csvFileName}"` : " CSV"}
                 </s-text>
               )}
 
@@ -736,10 +745,8 @@ export default function SupplierUpdatesPage() {
         {/* Stock Update Flow */}
         {step === "actions" && updateType === "stock" && !updateComplete && (
           <s-card>
-            <s-block-stack gap="400">
-              <s-heading>
-                <h3>Update Stock</h3>
-              </s-heading>
+            <s-stack gap="base">
+              <s-heading>Update Stock</s-heading>
 
               {isLoading && products.length === 0 && (
                 <s-box>
@@ -759,21 +766,22 @@ export default function SupplierUpdatesPage() {
                 </s-box>
               )}
 
-              {products.length > 0 && (
-                <>
-                  <s-text>
-                    Found <strong>{products.length}</strong> products to update.
-                  </s-text>
-
+              {products.length > 0 &&
+                (batchProcessor.isProcessing ? (
                   <BatchProgress
                     current={batchProcessor.currentBatch}
                     total={batchProcessor.totalBatches}
                     progress={batchProcessor.progress}
                     isProcessing={batchProcessor.isProcessing}
                   />
+                ) : (
+                  <>
+                    <s-text>
+                      Found <strong>{products.length}</strong> products to
+                      update.
+                    </s-text>
 
-                  {!batchProcessor.isProcessing && (
-                    <s-inline-stack gap="200">
+                    <s-stack gap="base" direction="inline">
                       <s-button
                         variant="primary"
                         onClick={handleUpdateStock}
@@ -782,11 +790,10 @@ export default function SupplierUpdatesPage() {
                         Update Stock Now
                       </s-button>
                       <s-button onClick={goToCSV}>Cancel</s-button>
-                    </s-inline-stack>
-                  )}
-                </>
-              )}
-            </s-block-stack>
+                    </s-stack>
+                  </>
+                ))}
+            </s-stack>
           </s-card>
         )}
 
@@ -816,30 +823,33 @@ export default function SupplierUpdatesPage() {
                 </s-box>
               )}
 
-              {products.length > 0 && (
-                <>
-                  <MarginSettings margin={margin} onMarginChange={setMargin} />
-
-                  <FilterButtons
-                    filter={filter}
-                    onFilterChange={setFilter}
-                    stats={stats}
-                  />
-
-                  <ProductTable
-                    products={filteredProducts}
-                    onToggleUpdate={toggleProductUpdate}
-                    onPriceChange={updateProductPrice}
-                  />
-
+              {products.length > 0 &&
+                (batchProcessor.isProcessing ? (
                   <BatchProgress
                     current={batchProcessor.currentBatch}
                     total={batchProcessor.totalBatches}
                     progress={batchProcessor.progress}
                     isProcessing={batchProcessor.isProcessing}
                   />
+                ) : (
+                  <>
+                    <MarginSettings margin={margin} onMarginChange={setMargin} />
 
-                  {!batchProcessor.isProcessing && (
+                    <FilterButtons
+                      filter={filter}
+                      onFilterChange={setFilter}
+                      stats={stats}
+                    />
+
+                    <ProductTable
+                      products={filteredProducts}
+                      onToggleUpdate={toggleProductUpdate}
+                      onPriceChange={updateProductPrice}
+                      onSelectCurrentPage={setUpdatesForVariants}
+                      shopDomain={shopDomain}
+                      filter={filter}
+                    />
+
                     <div
                       style={{
                         position: "sticky",
@@ -857,9 +867,8 @@ export default function SupplierUpdatesPage() {
                         <s-button onClick={goToCSV}>Cancel</s-button>
                       </s-stack>
                     </div>
-                  )}
-                </>
-              )}
+                  </>
+                ))}
             </s-stack>
           </s-card>
         )}

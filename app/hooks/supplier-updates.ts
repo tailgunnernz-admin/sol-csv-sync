@@ -2,13 +2,14 @@
  * Custom React hooks for Supplier Updates
  */
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import type {
   CSVFieldMapping,
   NormalizedProduct,
   UpdateResponse,
   FilterType,
 } from "../types/supplier-updates";
+import { getMarginStatus } from "../lib/supplier-updates";
 
 /**
  * Hook to manage CSV field mapping state
@@ -66,36 +67,38 @@ export function usePricingProducts(marginThreshold: number = 5) {
     if (filter === "all") return products;
 
     if (filter === "med") {
-      return products.filter((p) => p.margin > 0 && p.margin < margin);
+      return products.filter((p) => p.marginStatus === "medium");
     }
 
     if (filter === "neg") {
-      return products.filter((p) => p.margin < 0);
+      return products.filter((p) => p.marginStatus === "negative");
     }
 
     return products;
-  }, [products, filter, margin]);
+  }, [products, filter]);
 
   const updateProduct = useCallback(
-    (sku: string, updates: Partial<NormalizedProduct>) => {
+    (variantId: string, updates: Partial<NormalizedProduct>) => {
       setProducts((prev) =>
-        prev.map((p) => (p.sku === sku ? { ...p, ...updates } : p)),
+        prev.map((p) => (p.variantId === variantId ? { ...p, ...updates } : p)),
       );
     },
     [],
   );
 
-  const toggleProductUpdate = useCallback((sku: string) => {
+  const toggleProductUpdate = useCallback((variantId: string) => {
     setProducts((prev) =>
-      prev.map((p) => (p.sku === sku ? { ...p, update: !p.update } : p)),
+      prev.map((p) =>
+        p.variantId === variantId ? { ...p, update: !p.update } : p,
+      ),
     );
   }, []);
 
   const updateProductPrice = useCallback(
-    (sku: string, newPrice: number) => {
+    (variantId: string, newPrice: number) => {
       setProducts((prev) =>
         prev.map((p) => {
-          if (p.sku !== sku) return p;
+          if (p.variantId !== variantId) return p;
           const newMargin = (newPrice / p.costNew) * 100 - 100;
           return {
             ...p,
@@ -113,6 +116,34 @@ export function usePricingProducts(marginThreshold: number = 5) {
     },
     [margin],
   );
+
+  const setUpdatesForVariants = useCallback((variantIds: string[]) => {
+    const selected = new Set(variantIds);
+    setProducts((prev) => {
+      let changed = false;
+      const next = prev.map((p) => {
+        const shouldUpdate = selected.has(p.variantId);
+        if (p.update === shouldUpdate) return p;
+        changed = true;
+        return { ...p, update: shouldUpdate };
+      });
+      return changed ? next : prev;
+    });
+  }, []);
+
+  useEffect(() => {
+    setProducts((prev) => {
+      let changed = false;
+      const next = prev.map((p) => {
+        const nextStatus = getMarginStatus(p.margin, margin);
+        if (p.marginStatus === nextStatus) return p;
+        changed = true;
+        return { ...p, marginStatus: nextStatus };
+      });
+
+      return changed ? next : prev;
+    });
+  }, [margin]);
 
   const selectableProducts = useMemo(
     () => products.filter((p) => p.update),
@@ -141,6 +172,7 @@ export function usePricingProducts(marginThreshold: number = 5) {
     updateProduct,
     toggleProductUpdate,
     updateProductPrice,
+    setUpdatesForVariants,
     selectableProducts,
     stats,
   };
@@ -202,21 +234,21 @@ export function useBatchProcessor() {
  * Hook to manage editing timeout (debounce for price changes)
  */
 export function useEditingState() {
-  const [editingSku, setEditingSku] = useState<string | null>(null);
+  const [editingVariantId, setEditingVariantId] = useState<string | null>(null);
   const [timeout, setTimeoutRef] = useState<NodeJS.Timeout | null>(null);
 
   const startEditing = useCallback(
-    (sku: string) => {
+    (variantId: string) => {
       // Clear existing timeout
       if (timeout) {
         clearTimeout(timeout);
       }
 
-      setEditingSku(sku);
+      setEditingVariantId(variantId);
 
       // Auto-clear after 5 seconds
       const newTimeout = setTimeout(() => {
-        setEditingSku(null);
+        setEditingVariantId(null);
       }, 5000);
 
       setTimeoutRef(newTimeout);
@@ -228,13 +260,13 @@ export function useEditingState() {
     if (timeout) {
       clearTimeout(timeout);
     }
-    setEditingSku(null);
+    setEditingVariantId(null);
   }, [timeout]);
 
   return {
-    editingSku,
+    editingVariantId,
     startEditing,
     stopEditing,
-    isEditing: (sku: string) => editingSku === sku,
+    isEditing: (variantId: string) => editingVariantId === variantId,
   };
 }
