@@ -5,7 +5,7 @@
 
 // Query products by SKU - builds OR query for multiple SKUs
 export const GET_PRODUCTS_BY_SKU = `#graphql
-  query getProductsBySku($query: String!) {
+  query getProductsBySku($query: String!, $locationId: ID!) {
     products(first: 100, query: $query) {
       nodes {
         id
@@ -27,6 +27,15 @@ export const GET_PRODUCTS_BY_SKU = `#graphql
               unitCost {
                 amount
                 currencyCode
+              }
+              inventoryLevel(locationId: $locationId) {
+                location {
+                  id
+                }
+                quantities(names: ["available"]) {
+                  name
+                  quantity
+                }
               }
             }
             inventoryQuantity

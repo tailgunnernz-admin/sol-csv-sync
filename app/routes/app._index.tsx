@@ -127,6 +127,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   return {
     locationId: defaultLocation?.id || null,
     locationName: defaultLocation?.name || "Unknown",
+    locations: locations.map((location) => ({
+      id: location.id,
+      name: location.name,
+      isActive: location.isActive,
+    })),
     shopDomain: session.shop,
   };
 };
@@ -166,7 +171,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       const query = buildSkuQuery(skuBatch);
       if (!query) continue;
       const response = await admin.graphql(GET_PRODUCTS_BY_SKU, {
-        variables: { query },
+        variables: {
+          query,
+          locationId: locationId || "",
+        },
       });
       const data = (await response.json()) as ProductsQueryResponse;
 
@@ -184,6 +192,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
               shopifyProduct,
               csvProduct,
               marginThreshold,
+              locationId,
             );
             if (normalized) {
               allProducts.push(normalized);
@@ -292,6 +301,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     const productsJson = formData.get("products") as string;
     const products: NormalizedProduct[] = JSON.parse(productsJson || "[]");
     const updateStock = formData.get("updateStock") === "true";
+
+    // console.log("updatestock:", JSON.stringify(updateStock));
 
     if (products.length === 0) {
       return { results: [], error: "No products to update" };
@@ -437,11 +448,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         }))
         .filter((c) => c.delta !== 0);
 
+      // console.log("Stock changes to apply:", JSON.stringify(stockChanges));
+
       if (stockChanges.length > 0) {
         const changeBatches = chunkArray(stockChanges, 100);
         for (const batch of changeBatches) {
           try {
-            await admin.graphql(INVENTORY_ADJUST_QUANTITIES, {
+            const response = await admin.graphql(INVENTORY_ADJUST_QUANTITIES, {
               variables: {
                 input: {
                   reason: "correction",
@@ -450,6 +463,30 @@ export const action = async ({ request }: ActionFunctionArgs) => {
                 },
               },
             });
+            const data = (await response.json()) as InventoryAdjustResponse;
+            // console.log(
+            //   "Inventory adjust response:",
+            //   JSON.stringify(data.data),
+            // );
+            const userErrors =
+              data.data?.inventoryAdjustQuantities.userErrors || [];
+            for (const change of batch) {
+              const result = results.find(
+                (r) =>
+                  r.sku ===
+                  productsToUpdate.find(
+                    (p) => p.inventoryItemId === change.inventoryItemId,
+                  )?.sku,
+              );
+              if (result) {
+                const hasError = userErrors.length > 0;
+                result.updated = !hasError;
+                result.message = hasError
+                  ? userErrors[0].message
+                  : "Stock updated";
+                result.error = hasError ? userErrors[0].message : undefined;
+              }
+            }
           } catch {
             // Stock update errors are secondary, don't fail the whole operation
             console.error("Stock update error", batch);
@@ -468,7 +505,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
  * Supplier Updates Page Component
  */
 export default function SupplierUpdatesPage() {
-  const { locationId, shopDomain } = useLoaderData<typeof loader>();
+  const { locationId, shopDomain, locations } = useLoaderData<typeof loader>();
   const fetcher = useFetcher<typeof action>();
   const shopify = useAppBridge();
 
@@ -479,6 +516,9 @@ export default function SupplierUpdatesPage() {
   const [error, setError] = useState<string>("");
   const [updateType, setUpdateType] = useState<"stock" | "pricing" | null>(
     null,
+  );
+  const [selectedLocationId, setSelectedLocationId] = useState(
+    locationId || "",
   );
 
   // CSV field mapping
@@ -525,6 +565,17 @@ export default function SupplierUpdatesPage() {
     setError(err);
   }, []);
 
+  const handleLocationChange = useCallback((event: Event) => {
+    const customEvent = event as CustomEvent;
+    const detailValue = customEvent.detail?.value as string | undefined;
+    const currentTargetValue = (
+      event.currentTarget as { value?: string } | null
+    )?.value;
+    const targetValue = (event.target as { value?: string } | null)?.value;
+    const value = detailValue ?? currentTargetValue ?? targetValue ?? "";
+    setSelectedLocationId(value);
+  }, []);
+
   // Go to next step
   const goToActions = useCallback(() => {
     if (allFieldsSelected) {
@@ -542,6 +593,10 @@ export default function SupplierUpdatesPage() {
 
   // Start stock only update
   const handleStockOnly = useCallback(() => {
+    if (!selectedLocationId) {
+      setError("Please select a location to update.");
+      return;
+    }
     setUpdateType("stock");
 
     // Extract products and submit for lookup
@@ -551,15 +606,19 @@ export default function SupplierUpdatesPage() {
       {
         intent: "lookupProducts",
         csvProducts: JSON.stringify(csvProducts),
-        locationId: locationId || "",
+        locationId: selectedLocationId,
         marginThreshold: margin.toString(),
       },
       { method: "post" },
     );
-  }, [csvData, fields, fetcher, locationId, margin]);
+  }, [csvData, fields, fetcher, margin, selectedLocationId]);
 
   // Start pricing update
   const handleStockAndPricing = useCallback(() => {
+    if (!selectedLocationId) {
+      setError("Please select a location to update.");
+      return;
+    }
     setUpdateType("pricing");
 
     // Extract products and submit for lookup
@@ -569,12 +628,12 @@ export default function SupplierUpdatesPage() {
       {
         intent: "lookupProducts",
         csvProducts: JSON.stringify(csvProducts),
-        locationId: locationId || "",
+        locationId: selectedLocationId,
         marginThreshold: margin.toString(),
       },
       { method: "post" },
     );
-  }, [csvData, fields, fetcher, locationId, margin]);
+  }, [csvData, fields, fetcher, margin, selectedLocationId]);
 
   // Effect to handle lookup response
   useEffect(() => {
@@ -609,12 +668,12 @@ export default function SupplierUpdatesPage() {
       {
         intent: "updatePricing",
         products: JSON.stringify(productsToUpdate),
-        locationId: locationId || "",
+        locationId: selectedLocationId,
         updateStock: hasStockField ? "true" : "false",
       },
       { method: "post" },
     );
-  }, [products, fetcher, locationId, hasStockField, batchProcessor]);
+  }, [products, fetcher, hasStockField, batchProcessor, selectedLocationId]);
 
   // Handle update stock only
   const handleUpdateStock = useCallback(() => {
@@ -633,11 +692,11 @@ export default function SupplierUpdatesPage() {
       {
         intent: "updateStock",
         products: JSON.stringify(productsToUpdate),
-        locationId: locationId || "",
+        locationId: selectedLocationId,
       },
       { method: "post" },
     );
-  }, [products, fetcher, locationId, batchProcessor]);
+  }, [products, fetcher, batchProcessor, selectedLocationId]);
 
   // Handle update results
   const updateComplete =
@@ -730,6 +789,24 @@ export default function SupplierUpdatesPage() {
         {step === "actions" && !updateType && (
           <s-card>
             <s-stack gap="base">
+              <s-box>
+                <s-stack gap="small-200">
+                  <s-heading>Stock Location (in Shopify)</s-heading>
+                  <s-select
+                    value={selectedLocationId}
+                    onChange={handleLocationChange}
+                    onInput={handleLocationChange}
+                    label="Stock Location (in Shopify)"
+                    labelAccessibilityVisibility="exclusive"
+                  >
+                    {locations.map((location) => (
+                      <s-option key={location.id} value={location.id}>
+                        {location.name}
+                      </s-option>
+                    ))}
+                  </s-select>
+                </s-stack>
+              </s-box>
               <ActionSelector
                 hasStock={hasStockField}
                 onStockOnly={handleStockOnly}
@@ -833,7 +910,10 @@ export default function SupplierUpdatesPage() {
                   />
                 ) : (
                   <>
-                    <MarginSettings margin={margin} onMarginChange={setMargin} />
+                    <MarginSettings
+                      margin={margin}
+                      onMarginChange={setMargin}
+                    />
 
                     <FilterButtons
                       filter={filter}

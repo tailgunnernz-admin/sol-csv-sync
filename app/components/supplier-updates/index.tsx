@@ -603,13 +603,13 @@ export function ProductTable({
     onSelectCurrentPage(paginatedProducts.map((product) => product.variantId));
   }, [onSelectCurrentPage, paginatedProducts]);
 
-  console.log("Rendering ProductTable:", {
-    currentPage,
-    totalPages,
-    hasNextPage,
-    hasPreviousPage,
-    paginatedProducts,
-  });
+  // console.log("Rendering ProductTable:", {
+  //   currentPage,
+  //   totalPages,
+  //   hasNextPage,
+  //   hasPreviousPage,
+  //   paginatedProducts,
+  // });
 
   if (products.length === 0) {
     return (

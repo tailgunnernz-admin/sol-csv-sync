@@ -42,6 +42,10 @@ export interface ShopifyVariant {
       amount: string;
       currencyCode: string;
     } | null;
+    inventoryLevel?: {
+      location?: { id: string } | null;
+      quantities?: Array<{ name: string; quantity: number }>;
+    } | null;
   };
   inventoryQuantity: number;
 }

@@ -144,6 +144,7 @@ export function normalizeShopifyProduct(
   shopifyProduct: ShopifyProduct,
   csvProduct: CSVProduct,
   marginThreshold: number = 5,
+  locationId?: string | null,
 ): NormalizedProduct | null {
   // Find the variant with matching SKU
   const variant = shopifyProduct.variants.nodes.find(
@@ -158,7 +159,20 @@ export function normalizeShopifyProduct(
 
   const currentPrice = parseFloat(variant.price) || 0;
   const newCost = csvProduct.cost;
-  const newQuantity = csvProduct.soh ?? variant.inventoryQuantity;
+  const locationAvailable = locationId
+    ? variant.inventoryItem.inventoryLevel?.location?.id === locationId
+      ? variant.inventoryItem.inventoryLevel?.quantities?.find(
+          (qty) => qty.name === "available",
+        )?.quantity
+      : undefined
+    : variant.inventoryItem.inventoryLevel?.quantities?.find(
+        (qty) => qty.name === "available",
+      )?.quantity;
+  const currentQuantity =
+    typeof locationAvailable === "number"
+      ? locationAvailable
+      : variant.inventoryQuantity;
+  const newQuantity = csvProduct.soh ?? currentQuantity;
 
   const margin = calculateMargin(currentPrice, newCost);
 
@@ -173,7 +187,7 @@ export function normalizeShopifyProduct(
     // Current values
     cost: currentCost,
     price: currentPrice,
-    quantity: variant.inventoryQuantity,
+    quantity: currentQuantity,
 
     // New values from CSV
     costNew: newCost,
