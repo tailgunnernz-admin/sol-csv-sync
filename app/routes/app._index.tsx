@@ -3,7 +3,7 @@
  * Main page for CSV import and bulk product updates
  */
 
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { useFetcher, useLoaderData } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
@@ -314,116 +314,120 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     // Group by parent product for bulk update
     const grouped = groupProductsByParent(productsToUpdate);
 
+    const variantBatchSize = 100;
     for (const [productId, variants] of grouped) {
       try {
-        const variantInputs = variants.map((v) => ({
-          id: v.variantId,
-          price: v.price.toFixed(2),
-          inventoryItem: {
-            cost: v.costNew,
-          },
-        }));
-
-        const response = await admin.graphql(PRODUCT_VARIANTS_BULK_UPDATE, {
-          variables: {
-            productId,
-            variants: variantInputs,
-          },
-        });
-
-        const data = (await response.json()) as VariantUpdateResponse;
-        const userErrors =
-          data.data?.productVariantsBulkUpdate.userErrors || [];
-        const hasCostError = userErrors.some((error) => {
-          const field = (error.field || []).join(".");
-          return (
-            /inventoryItem|cost|unitCost/i.test(error.message) ||
-            /inventoryItem|cost|unitCost/i.test(field)
-          );
-        });
-
-        if (userErrors.length > 0 && hasCostError) {
-          const priceInputs = variants.map((v) => ({
+        const variantBatches = chunkArray(variants, variantBatchSize);
+        for (const variantBatch of variantBatches) {
+          const variantInputs = variantBatch.map((v) => ({
             id: v.variantId,
             price: v.price.toFixed(2),
+            inventoryItem: {
+              cost: v.costNew,
+            },
           }));
 
-          const priceResponse = await admin.graphql(
-            PRODUCT_VARIANTS_BULK_UPDATE,
-            {
-              variables: {
-                productId,
-                variants: priceInputs,
-              },
+          const response = await admin.graphql(PRODUCT_VARIANTS_BULK_UPDATE, {
+            variables: {
+              productId,
+              variants: variantInputs,
             },
-          );
-          const priceData =
-            (await priceResponse.json()) as VariantUpdateResponse;
-          const priceErrors =
-            priceData.data?.productVariantsBulkUpdate.userErrors || [];
-          const hasPriceData = Boolean(
-            priceData.data?.productVariantsBulkUpdate,
-          );
-          const effectivePriceErrors = hasPriceData
-            ? priceErrors
-            : [{ message: "Price update failed" }];
+          });
 
-          const costErrors = new Map<string, string>();
-          for (const variant of variants) {
-            try {
-              const costResponse = await admin.graphql(INVENTORY_ITEM_UPDATE, {
+          const data = (await response.json()) as VariantUpdateResponse;
+          const userErrors =
+            data.data?.productVariantsBulkUpdate.userErrors || [];
+          const hasCostError = userErrors.some((error) => {
+            const field = (error.field || []).join(".");
+            return (
+              /inventoryItem|cost|unitCost/i.test(error.message) ||
+              /inventoryItem|cost|unitCost/i.test(field)
+            );
+          });
+
+          if (userErrors.length > 0 && hasCostError) {
+            const priceInputs = variantBatch.map((v) => ({
+              id: v.variantId,
+              price: v.price.toFixed(2),
+            }));
+
+            const priceResponse = await admin.graphql(
+              PRODUCT_VARIANTS_BULK_UPDATE,
+              {
                 variables: {
-                  id: variant.inventoryItemId,
-                  input: {
-                    cost: variant.costNew,
-                  },
+                  productId,
+                  variants: priceInputs,
                 },
-              });
-              const costData =
-                (await costResponse.json()) as InventoryItemUpdateResponse;
-              const inventoryUpdate = costData.data?.inventoryItemUpdate;
-              if (!inventoryUpdate) {
-                costErrors.set(variant.sku, "Cost update failed");
-                continue;
-              }
-              if (inventoryUpdate.userErrors.length > 0) {
+              },
+            );
+            const priceData =
+              (await priceResponse.json()) as VariantUpdateResponse;
+            const priceErrors =
+              priceData.data?.productVariantsBulkUpdate.userErrors || [];
+            const hasPriceData = Boolean(
+              priceData.data?.productVariantsBulkUpdate,
+            );
+            const effectivePriceErrors = hasPriceData
+              ? priceErrors
+              : [{ message: "Price update failed" }];
+
+            const costErrors = new Map<string, string>();
+            for (const variant of variantBatch) {
+              try {
+                const costResponse = await admin.graphql(INVENTORY_ITEM_UPDATE, {
+                  variables: {
+                    id: variant.inventoryItemId,
+                    input: {
+                      cost: variant.costNew,
+                    },
+                  },
+                });
+                const costData =
+                  (await costResponse.json()) as InventoryItemUpdateResponse;
+                const inventoryUpdate = costData.data?.inventoryItemUpdate;
+                if (!inventoryUpdate) {
+                  costErrors.set(variant.sku, "Cost update failed");
+                  continue;
+                }
+                if (inventoryUpdate.userErrors.length > 0) {
+                  costErrors.set(
+                    variant.sku,
+                    inventoryUpdate.userErrors[0].message,
+                  );
+                }
+              } catch (err) {
                 costErrors.set(
                   variant.sku,
-                  inventoryUpdate.userErrors[0].message,
+                  err instanceof Error ? err.message : "Unknown error",
                 );
               }
-            } catch (err) {
-              costErrors.set(
-                variant.sku,
-                err instanceof Error ? err.message : "Unknown error",
-              );
             }
-          }
 
-          for (const variant of variants) {
-            const hasPriceError = effectivePriceErrors.length > 0;
-            const costError = costErrors.get(variant.sku);
-            const hasError = hasPriceError || Boolean(costError);
-            const message = hasError
-              ? costError || effectivePriceErrors[0].message
-              : "Pricing updated";
+            for (const variant of variantBatch) {
+              const hasPriceError = effectivePriceErrors.length > 0;
+              const costError = costErrors.get(variant.sku);
+              const hasError = hasPriceError || Boolean(costError);
+              const message = hasError
+                ? costError || effectivePriceErrors[0].message
+                : "Pricing updated";
 
-            results.push({
-              sku: variant.sku,
-              updated: !hasError,
-              message,
-              error: hasError ? message : undefined,
-            });
-          }
-        } else {
-          for (const variant of variants) {
-            const hasError = userErrors.length > 0;
-            results.push({
-              sku: variant.sku,
-              updated: !hasError,
-              message: hasError ? userErrors[0].message : "Pricing updated",
-              error: hasError ? userErrors[0].message : undefined,
-            });
+              results.push({
+                sku: variant.sku,
+                updated: !hasError,
+                message,
+                error: hasError ? message : undefined,
+              });
+            }
+          } else {
+            for (const variant of variantBatch) {
+              const hasError = userErrors.length > 0;
+              results.push({
+                sku: variant.sku,
+                updated: !hasError,
+                message: hasError ? userErrors[0].message : "Pricing updated",
+                error: hasError ? userErrors[0].message : undefined,
+              });
+            }
           }
         }
       } catch (err) {
@@ -508,6 +512,10 @@ export default function SupplierUpdatesPage() {
   const { locationId, shopDomain, locations } = useLoaderData<typeof loader>();
   const fetcher = useFetcher<typeof action>();
   const shopify = useAppBridge();
+  const batchResolver = useRef<((data: typeof fetcher.data) => void) | null>(
+    null,
+  );
+  const updateBatchSize = 50;
 
   // Workflow state
   const [step, setStep] = useState<WorkflowStep>("csv");
@@ -536,6 +544,7 @@ export default function SupplierUpdatesPage() {
     setMargin,
     toggleProductUpdate,
     updateProductPrice,
+    confirmProductEdit,
     setUpdatesForVariants,
     stats,
   } = usePricingProducts(5);
@@ -564,6 +573,21 @@ export default function SupplierUpdatesPage() {
   const handleFileError = useCallback((err: string) => {
     setError(err);
   }, []);
+
+  useEffect(() => {
+    if (fetcher.state !== "idle" || !batchResolver.current) return;
+    batchResolver.current(fetcher.data);
+    batchResolver.current = null;
+  }, [fetcher.state, fetcher.data]);
+
+  const submitBatch = useCallback(
+    (payload: Record<string, string>) =>
+      new Promise<typeof fetcher.data>((resolve) => {
+        batchResolver.current = resolve;
+        fetcher.submit(payload, { method: "post" });
+      }),
+    [fetcher],
+  );
 
   const handleLocationChange = useCallback((event: Event) => {
     const customEvent = event as CustomEvent;
@@ -660,20 +684,41 @@ export default function SupplierUpdatesPage() {
       return;
     }
 
-    batchProcessor.setIsProcessing(true);
-    batchProcessor.setTotalBatches(1);
-    batchProcessor.setCurrentBatch(1);
+    void (async () => {
+      batchProcessor.reset();
+      batchProcessor.setIsProcessing(true);
 
-    fetcher.submit(
-      {
-        intent: "updatePricing",
-        products: JSON.stringify(productsToUpdate),
-        locationId: selectedLocationId,
-        updateStock: hasStockField ? "true" : "false",
-      },
-      { method: "post" },
-    );
-  }, [products, fetcher, hasStockField, batchProcessor, selectedLocationId]);
+      const batches = chunkArray(productsToUpdate, updateBatchSize);
+      batchProcessor.setTotalBatches(batches.length);
+
+      for (let index = 0; index < batches.length; index += 1) {
+        batchProcessor.setCurrentBatch(index + 1);
+        const data = await submitBatch({
+          intent: "updatePricing",
+          products: JSON.stringify(batches[index]),
+          locationId: selectedLocationId,
+          updateStock: hasStockField ? "true" : "false",
+        });
+
+        if (data && "results" in data && Array.isArray(data.results)) {
+          batchProcessor.addResults(data.results);
+        }
+        if (data && "error" in data && data.error) {
+          setError(data.error);
+          break;
+        }
+      }
+
+      batchProcessor.setIsProcessing(false);
+    })();
+  }, [
+    products,
+    hasStockField,
+    batchProcessor,
+    selectedLocationId,
+    updateBatchSize,
+    submitBatch,
+  ]);
 
   // Handle update stock only
   const handleUpdateStock = useCallback(() => {
@@ -684,26 +729,45 @@ export default function SupplierUpdatesPage() {
       return;
     }
 
-    batchProcessor.setIsProcessing(true);
-    batchProcessor.setTotalBatches(1);
-    batchProcessor.setCurrentBatch(1);
+    void (async () => {
+      batchProcessor.reset();
+      batchProcessor.setIsProcessing(true);
 
-    fetcher.submit(
-      {
-        intent: "updateStock",
-        products: JSON.stringify(productsToUpdate),
-        locationId: selectedLocationId,
-      },
-      { method: "post" },
-    );
-  }, [products, fetcher, batchProcessor, selectedLocationId]);
+      const batches = chunkArray(productsToUpdate, updateBatchSize);
+      batchProcessor.setTotalBatches(batches.length);
+
+      for (let index = 0; index < batches.length; index += 1) {
+        batchProcessor.setCurrentBatch(index + 1);
+        const data = await submitBatch({
+          intent: "updateStock",
+          products: JSON.stringify(batches[index]),
+          locationId: selectedLocationId,
+        });
+
+        if (data && "results" in data && Array.isArray(data.results)) {
+          batchProcessor.addResults(data.results);
+        }
+        if (data && "error" in data && data.error) {
+          setError(data.error);
+          break;
+        }
+      }
+
+      batchProcessor.setIsProcessing(false);
+    })();
+  }, [
+    products,
+    batchProcessor,
+    selectedLocationId,
+    updateBatchSize,
+    submitBatch,
+  ]);
 
   // Handle update results
   const updateComplete =
     updateType !== null &&
-    fetcher.data &&
-    "results" in fetcher.data &&
-    !isLoading;
+    !batchProcessor.isProcessing &&
+    batchProcessor.results.length > 0;
   const lookupComplete =
     fetcher.data &&
     "products" in fetcher.data &&
@@ -924,11 +988,12 @@ export default function SupplierUpdatesPage() {
                     <ProductTable
                       products={filteredProducts}
                       onToggleUpdate={toggleProductUpdate}
-                      onPriceChange={updateProductPrice}
-                      onSelectCurrentPage={setUpdatesForVariants}
-                      shopDomain={shopDomain}
-                      filter={filter}
-                    />
+                    onPriceChange={updateProductPrice}
+                    onConfirmEdit={confirmProductEdit}
+                    onSelectCurrentPage={setUpdatesForVariants}
+                    shopDomain={shopDomain}
+                    filter={filter}
+                  />
 
                     <div
                       style={{
@@ -954,19 +1019,13 @@ export default function SupplierUpdatesPage() {
         )}
 
         {/* Results */}
-        {updateComplete && fetcher.data && "results" in fetcher.data && (
+        {updateComplete && (
           <s-card>
             <UpdateResults
               totalChecked={csvData.length - 1}
               totalFound={products.length}
-              updatedCount={
-                fetcher.data.results?.filter((r: UpdateResponse) => r.updated)
-                  .length || 0
-              }
-              notUpdatedCount={
-                fetcher.data.results?.filter((r: UpdateResponse) => !r.updated)
-                  .length || 0
-              }
+              updatedCount={batchProcessor.updatedCount}
+              notUpdatedCount={batchProcessor.notUpdatedCount}
               onStartAgain={handleStartAgain}
             />
           </s-card>

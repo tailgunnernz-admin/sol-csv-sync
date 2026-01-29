@@ -263,8 +263,14 @@ export function BatchProgress({
           <s-spinner size="base" />
           <s-heading>Updating...</s-heading>
         </s-stack>
-        <s-text tone="neutral">
-          Batch {current} of {total}
+        <s-text tone="critical">
+          <u>
+            Batch {current} of {total}
+          </u>
+        </s-text>
+        <s-text>
+          Go grab a coffee ☕ This can take some time. Please do not navigate
+          away from this page.
         </s-text>
       </s-stack>
     </s-box>
@@ -433,6 +439,7 @@ interface ProductRowProps {
   product: NormalizedProduct;
   onToggleUpdate: (variantId: string) => void;
   onPriceChange: (variantId: string, price: number) => void;
+  onConfirmEdit?: (variantId: string) => void;
   shopDomain?: string | null;
 }
 
@@ -440,6 +447,7 @@ export function ProductRow({
   product,
   onToggleUpdate,
   onPriceChange,
+  onConfirmEdit,
   shopDomain,
 }: ProductRowProps) {
   const handlePriceChange = useCallback(
@@ -535,6 +543,16 @@ export function ProductRow({
             value={product.price.toString()}
             onChange={handlePriceChange}
           />
+          {product.editing?.status && onConfirmEdit && (
+            <div style={{ marginTop: "6px" }}>
+              <s-button
+                variant="secondary"
+                onClick={() => onConfirmEdit(product.variantId)}
+              >
+                Confirm price
+              </s-button>
+            </div>
+          )}
         </s-box>
       </s-table-cell>
       <s-table-cell>
@@ -555,6 +573,7 @@ interface ProductTableProps {
   products: NormalizedProduct[];
   onToggleUpdate: (variantId: string) => void;
   onPriceChange: (variantId: string, price: number) => void;
+  onConfirmEdit?: (variantId: string) => void;
   onSelectCurrentPage?: (variantIds: string[]) => void;
   shopDomain?: string | null;
   filter: FilterType;
@@ -564,6 +583,7 @@ export function ProductTable({
   products,
   onToggleUpdate,
   onPriceChange,
+  onConfirmEdit,
   onSelectCurrentPage,
   shopDomain,
   filter,
@@ -668,6 +688,7 @@ export function ProductTable({
               product={product}
               onToggleUpdate={onToggleUpdate}
               onPriceChange={onPriceChange}
+              onConfirmEdit={onConfirmEdit}
               shopDomain={shopDomain}
             />
           ))}

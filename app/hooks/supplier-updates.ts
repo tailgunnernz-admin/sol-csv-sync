@@ -67,11 +67,17 @@ export function usePricingProducts(marginThreshold: number = 5) {
     if (filter === "all") return products;
 
     if (filter === "med") {
-      return products.filter((p) => p.marginStatus === "medium");
+      return products.filter((p) => {
+        if (p.editing?.status && p.editing.filter === "med") return true;
+        return p.marginStatus === "medium";
+      });
     }
 
     if (filter === "neg") {
-      return products.filter((p) => p.marginStatus === "negative");
+      return products.filter((p) => {
+        if (p.editing?.status && p.editing.filter === "neg") return true;
+        return p.marginStatus === "negative";
+      });
     }
 
     return products;
@@ -100,22 +106,38 @@ export function usePricingProducts(marginThreshold: number = 5) {
         prev.map((p) => {
           if (p.variantId !== variantId) return p;
           const newMargin = (newPrice / p.costNew) * 100 - 100;
+          const nextStatus =
+            newMargin < 0
+              ? "negative"
+              : newMargin < margin
+                ? "medium"
+                : "good";
+          const nextEditing =
+            filter === "all"
+              ? p.editing ?? { status: false, filter: "" }
+              : { status: true, filter };
           return {
             ...p,
             price: newPrice,
             margin: newMargin,
-            marginStatus:
-              newMargin < 0
-                ? "negative"
-                : newMargin < margin
-                  ? "medium"
-                  : "good",
+            marginStatus: nextStatus,
+            editing: nextEditing,
           };
         }),
       );
     },
-    [margin],
+    [margin, filter],
   );
+
+  const confirmProductEdit = useCallback((variantId: string) => {
+    setProducts((prev) =>
+      prev.map((p) =>
+        p.variantId === variantId
+          ? { ...p, editing: { status: false, filter: "" } }
+          : p,
+      ),
+    );
+  }, []);
 
   const setUpdatesForVariants = useCallback((variantIds: string[]) => {
     const selected = new Set(variantIds);
@@ -172,6 +194,7 @@ export function usePricingProducts(marginThreshold: number = 5) {
     updateProduct,
     toggleProductUpdate,
     updateProductPrice,
+    confirmProductEdit,
     setUpdatesForVariants,
     selectableProducts,
     stats,

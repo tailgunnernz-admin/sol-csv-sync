@@ -89,6 +89,10 @@ export interface NormalizedProduct {
 
   // UI state
   update: boolean;
+  editing?: {
+    status: boolean;
+    filter: FilterType | "";
+  };
 }
 
 export type MarginStatus = "good" | "medium" | "negative";

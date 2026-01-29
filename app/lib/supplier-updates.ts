@@ -199,6 +199,10 @@ export function normalizeShopifyProduct(
 
     // UI state
     update: true,
+    editing: {
+      status: false,
+      filter: "",
+    },
   };
 }
 
