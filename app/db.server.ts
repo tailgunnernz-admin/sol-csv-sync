@@ -28,13 +28,13 @@ function createD1Adapter() {
   });
 }
 
-// if (process.env.NODE_ENV !== "production") {
-//   if (!global.prismaGlobal) {
-//     global.prismaGlobal = new PrismaClient({
-//       log: ["query"],
-//     });
-//   }
-// }
+if (process.env.NODE_ENV !== "production") {
+  if (!global.prismaGlobal) {
+    global.prismaGlobal = new PrismaClient({
+      log: ["query"],
+    });
+  }
+}
 
 const prisma =
   global.prismaGlobal ??
