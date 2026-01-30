@@ -2,7 +2,7 @@
 
 client_id = "75d04b412c252c75441ded618363ec79"
 name = "CSV Sync for SOL"
-application_url = "https://example.com"
+application_url = "https://sol-csv-sync.vercel.app/"
 embedded = true
 
 [build]
@@ -24,4 +24,4 @@ api_version = "2026-04"
 scopes = "write_products,read_locations,write_inventory"
 
 [auth]
-redirect_urls = [ "https://example.com/api/auth" ]
+redirect_urls = [ "https://sol-csv-sync.vercel.app/api/auth" ]
